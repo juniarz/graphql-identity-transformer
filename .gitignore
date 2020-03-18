@@ -1,0 +1,15 @@
+**/.DS_Store
+node_modules
+lerna-debug.log
+npm-debug.log
+yarn-error.log
+coverage
+.env
+package-lock.json
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+**/.env
+test.out.log
+*.tsbuildinfo
+lib

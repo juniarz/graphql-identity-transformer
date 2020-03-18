@@ -1,0 +1,32 @@
+{
+  "name": "@juniarz/graphql-objectmeta-transformer",
+  "version": "1.0.0",
+  "description": "A GraphQL transform provides basic object meta for a @model and @auth type.",
+  "author": "Juniarz",
+  "license": "MIT",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "keywords": [
+    "graphql",
+    "appsync",
+    "aws",
+    "ezsofe"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "clean": "rimraf ./lib"
+  },
+  "dependencies": {
+    "cloudform-types": "^4.1.0",
+    "graphql": "^14.5.8",
+    "graphql-mapping-template": "4.13.3",
+    "graphql-transformer-common": "4.13.3",
+    "graphql-transformer-core": "6.16.0"
+  },
+  "devDependencies": {
+    "@types/node": "^10.17.13",
+    "graphql-dynamodb-transformer": "6.15.1",
+    "rimraf": "^3.0.2",
+    "typescript": "3.6.3"
+  }
+}
