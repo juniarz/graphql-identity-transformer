@@ -23,7 +23,11 @@ import {
   iff,
   Expression,
   equals,
-  bool
+  bool,
+  ifElse,
+  and,
+  toJson,
+  nul
 } from "graphql-mapping-template";
 import {
   ResolverResourceIDs,
@@ -45,7 +49,6 @@ export default class ObjectMetaModelTransformer extends Transformer {
   private deletedField = "deleted";
   private deletedAtField = "deletedAt";
   private deletedByField = "deletedBy";
-  private softDelete = true;
   private identityRequired = false;
   private typeName = "";
 
@@ -61,7 +64,6 @@ export default class ObjectMetaModelTransformer extends Transformer {
           deletedField: String = "deleted"
           deletedAtField: String = "deletedAt"
           deletedByField: String = "deletedBy"
-          softDelete: Boolean = true
           identityRequired: Boolean = false
         ) on OBJECT
       `
@@ -106,27 +108,52 @@ export default class ObjectMetaModelTransformer extends Transformer {
     this.deletedField = getArg("deletedField", "deleted");
     this.deletedAtField = getArg("deletedAtField", "deletedAt");
     this.deletedByField = getArg("deletedByField", "deletedBy");
-    this.softDelete = getArg("softDelete", true);
     this.identityRequired = getArg("identityRequired", false);
     this.typeName = def.name.value;
 
+    this.augmentGetQuery(ctx);
     this.augmentCreateMutation(ctx);
     this.augmentUpdateMutation(ctx);
-    if (this.softDelete) {
-      this.addSoftDeleteMutation(def, ctx);
-    }
     this.stripCreateInputField(ctx);
     this.stripUpdateInputFields(ctx);
     this.enforceFieldsOnType(ctx);
   };
 
-  private getCreateExpressions = () => {
+  private augmentGetQuery(ctx: TransformerContext) {
+    const queryResolverLogicalId = ResolverResourceIDs.DynamoDBGetResolverResourceID(
+      this.typeName
+    );
+    const resolver = ctx.getResource(queryResolverLogicalId);
+    if (resolver && resolver.Properties) {
+      const expressions: Expression[] = [];
+
+      expressions.push(
+        ifElse(
+          and([
+            raw(`$ctx.result`),
+            equals(raw(`$ctx.result.${this.deletedField}`), raw("true"))
+          ]),
+          toJson(nul()),
+          raw(resolver.Properties.ResponseMappingTemplate)
+        )
+      );
+
+      const snippet = printBlock(`ObjectMeta Deleted Object Logic`)(
+        compoundExpression(expressions)
+      );
+
+      resolver.Properties.ResponseMappingTemplate = snippet;
+      ctx.setResource(queryResolverLogicalId, resolver);
+    }
+  }
+
+  private augmentCreateMutation(ctx: TransformerContext) {
     const expressions: Expression[] = [
       set(
         ref("identityValue"),
         raw(
           `$util.defaultIfNull($ctx.identity.claims.get("username"), $util.defaultIfNull($ctx.identity.claims.get("cognito:username"), ${
-            this.identityRequired ? null : "-NO-IDENTITY-"
+            this.identityRequired ? null : '"-NO-IDENTITY-"'
           }))`
         )
       )
@@ -161,12 +188,8 @@ export default class ObjectMetaModelTransformer extends Transformer {
       qref(`$ctx.args.input.put("${this.deletedField}", false)`)
     );
 
-    return expressions;
-  };
-
-  private augmentCreateMutation(ctx: TransformerContext) {
     const snippet = printBlock(`ObjectMeta Fields`)(
-      compoundExpression(this.getCreateExpressions())
+      compoundExpression(expressions)
     );
     const mutationResolverLogicalId = ResolverResourceIDs.DynamoDBCreateResolverResourceID(
       this.typeName
@@ -179,13 +202,13 @@ export default class ObjectMetaModelTransformer extends Transformer {
     }
   }
 
-  private getUpdateExpressions = () => {
+  private augmentUpdateMutation(ctx: TransformerContext) {
     const expressions: Expression[] = [
       set(
         ref("$identityValue"),
         raw(
           `$util.defaultIfNull($ctx.identity.claims.get("username"), $util.defaultIfNull($ctx.identity.claims.get("cognito:username"), ${
-            this.identityRequired ? null : "-NO-IDENTITY-"
+            this.identityRequired ? null : '"-NO-IDENTITY-"'
           }))`
         )
       )
@@ -221,7 +244,6 @@ export default class ObjectMetaModelTransformer extends Transformer {
       iff(
         equals(raw(`$ctx.args.input.${this.deletedField}`), bool(true)),
         compoundExpression([
-          qref(`$ctx.args.input.put("${this.deletedField}", false)`),
           qref(
             `$ctx.args.input.put("${this.deletedAtField}", $util.time.nowEpochMilliSeconds())`
           ),
@@ -230,15 +252,12 @@ export default class ObjectMetaModelTransformer extends Transformer {
       )
     );
 
-    return expressions;
-  };
+    const snippet = printBlock(`ObjectMeta Fields`)(
+      compoundExpression(expressions)
+    );
 
-  private augmentUpdateMutation(ctx: TransformerContext) {
     const mutationResolverLogicalId = ResolverResourceIDs.DynamoDBUpdateResolverResourceID(
       this.typeName
-    );
-    const snippet = printBlock(`ObjectMeta Fields`)(
-      compoundExpression(this.getUpdateExpressions())
     );
     const resolver = ctx.getResource(mutationResolverLogicalId);
     if (resolver) {
@@ -250,108 +269,6 @@ export default class ObjectMetaModelTransformer extends Transformer {
       ctx.setResource(mutationResolverLogicalId, resolver);
     }
   }
-
-  // TODO
-  private getSoftDeleteExpressions = () => {
-    const expressions: Expression[] = [
-      set(
-        ref("$identityValue"),
-        raw(
-          `$util.defaultIfNull($ctx.identity.claims.get("username"), $util.defaultIfNull($ctx.identity.claims.get("cognito:username"), ${
-            this.identityRequired ? null : "-NO-IDENTITY-"
-          }))`
-        )
-      )
-    ];
-
-    if (this.identityRequired) {
-      expressions.push(
-        iff(
-          raw("$util.isNullOrEmpty($identityValue)"),
-          raw('$util.error("Invalid identity.")')
-        )
-      );
-    }
-    expressions.push(
-      qref(
-        `$ctx.args.input.put("${this.createdAtField}", $util.time.nowEpochMilliSeconds())`
-      )
-    );
-    expressions.push(
-      qref(`$ctx.args.input.put("${this.createdByField}", $identityValue)`)
-    );
-    expressions.push(
-      qref(
-        `$ctx.args.input.put("${this.updatedAtField}", $util.time.nowEpochMilliSeconds())`
-      )
-    );
-    expressions.push(
-      qref(`$ctx.args.input.put("${this.updatedByField}", $identityValue)`)
-    );
-    expressions.push(
-      qref(`$ctx.args.input.put("${this.deletedField}", false)`)
-    );
-
-    return expressions;
-  };
-
-  // TODO
-  private addSoftDeleteMutation = (
-    def: ObjectTypeDefinitionNode,
-    ctx: TransformerContext
-  ) => {
-    if (!this.softDelete) {
-      return;
-    }
-
-    const mutationResolverLogicalId = ResolverResourceIDs.DynamoDBUpdateResolverResourceID(
-      this.typeName
-    );
-    const softDeleteResourceID = "SoftDelete" + this.typeName + "Resolver";
-    const softDeleteFieldName = "softDelete" + this.typeName;
-    const softDeleteInputName = "SoftDelete" + this.typeName + "Input";
-
-    const softDeleteInput = makeInputObjectDefinition(softDeleteInputName, [
-      makeInputValueDefinition("id", makeNonNullType(makeNamedType("ID")))
-    ]);
-
-    if (!ctx.getType(softDeleteInput.name.value)) {
-      ctx.addInput(softDeleteInput);
-    }
-    ctx.addMutationFields([
-      makeField(
-        softDeleteFieldName,
-        [makeInputValueDefinition("id", makeNonNullType(makeNamedType("ID")))],
-        makeNamedType(def.name.value)
-      )
-    ]);
-
-    const updateResolver = ctx.getResource(mutationResolverLogicalId);
-
-    const snippet = printBlock(`ObjectMeta Fields`)(
-      compoundExpression(this.getSoftDeleteExpressions())
-    );
-
-    const softDeleterResolver = new AppSync.Resolver({
-      ApiId: Fn.GetAtt(
-        ResourceConstants.RESOURCES.GraphQLAPILogicalID,
-        "ApiId"
-      ),
-      DataSourceName: Fn.GetAtt(
-        ModelResourceIDs.ModelTableDataSourceID(def.name.value),
-        "Name"
-      ),
-      FieldName: softDeleteFieldName,
-      TypeName: "Mutation",
-      RequestMappingTemplate:
-        snippet + "\n" + updateResolver.Properties!.RequestMappingTemplate,
-      ResponseMappingTemplate: updateResolver.Properties!
-        .ResponseMappingTemplate
-    });
-
-    ctx.setResource(softDeleteResourceID, softDeleterResolver);
-    ctx.mapResourceToStack(def.name.value, softDeleteResourceID);
-  };
 
   private stripCreateInputField(ctx: TransformerContext) {
     const createInputName = ModelResourceIDs.ModelCreateInputObjectName(
@@ -389,10 +306,10 @@ export default class ObjectMetaModelTransformer extends Transformer {
   }
 
   private stripUpdateInputFields(ctx: TransformerContext) {
-    const createInputName = ModelResourceIDs.ModelUpdateInputObjectName(
+    const updateInputName = ModelResourceIDs.ModelUpdateInputObjectName(
       this.typeName
     );
-    const input = ctx.getType(createInputName);
+    const input = ctx.getType(updateInputName);
     if (
       input &&
       input.kind === Kind.INPUT_OBJECT_TYPE_DEFINITION &&
@@ -404,7 +321,6 @@ export default class ObjectMetaModelTransformer extends Transformer {
           f.name.value !== this.createdByField &&
           f.name.value !== this.updatedAtField &&
           f.name.value !== this.updatedByField &&
-          f.name.value !== this.deletedField &&
           f.name.value !== this.deletedAtField &&
           f.name.value !== this.deletedByField
       );
@@ -580,7 +496,7 @@ export default class ObjectMetaModelTransformer extends Transformer {
         ) {
           throw new TransformerContractError(
             `The deletedByField "${
-              this.deletedByField
+              this.updatedByField
             }" is required to be of type "ID${
               this.identityRequired ? "!" : ""
             }".`

@@ -1,8 +1,12 @@
 {
   "name": "@juniarz/graphql-objectmeta-transformer",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "A GraphQL transform provides basic object meta for a @model and @auth type.",
   "author": "Juniarz",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/juniarz/graphql-objectmeta-transformer"
+  },
   "license": "MIT",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
