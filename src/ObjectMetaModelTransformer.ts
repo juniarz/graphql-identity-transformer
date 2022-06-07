@@ -225,14 +225,6 @@ export default class ObjectMetaModelTransformer extends Transformer {
 
     expressions.push(
       qref(
-        `$ctx.args.input.put("${this.createdAtField}", $util.time.nowEpochMilliSeconds())`
-      )
-    );
-    expressions.push(
-      qref(`$ctx.args.input.put("${this.createdByField}", $identityValue)`)
-    );
-    expressions.push(
-      qref(
         `$ctx.args.input.put("${this.updatedAtField}", $util.time.nowEpochMilliSeconds())`
       )
     );
